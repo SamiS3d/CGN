@@ -1,51 +1,76 @@
-import pigpio
-import time
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
 
-GPIO_PIN = 27  # البن المتصل بخط DATA من المستقبل
+// دالة لتصفية الضوضاء عبر حساب المتوسط المتحرك
+void applyMovingAverageFilter(int* data, int size, int window_size) {
+    int* filtered_data = (int*)malloc(size * sizeof(int));
+    for (int i = 0; i < size; i++) {
+        int start = i - window_size / 2;
+        int end = i + window_size / 2;
+        if (start < 0) start = 0;
+        if (end >= size) end = size - 1;
 
-# إنشاء كائن pigpio
-pi = pigpio.pi()
-if not pi.connected:
-    exit("❌ لم يتم الاتصال بـ pigpio daemon. تأكد من تشغيل sudo pigpiod.")
+        int sum = 0;
+        int count = 0;
+        for (int j = start; j <= end; j++) {
+            sum += data[j];
+            count++;
+        }
+        filtered_data[i] = sum / count;
+    }
 
-print(f"📡 الاستماع على GPIO {GPIO_PIN}...")
+    // تحديث البيانات بعد التصفية
+    for (int i = 0; i < size; i++) {
+        data[i] = filtered_data[i];
+    }
 
-# إعداد المتغيرات
-last_tick = None
-timings = []
+    free(filtered_data);
+}
 
-# دالة المعالجة عند حدوث نبضة
-def rf_callback(gpio, level, tick):
-    global last_tick, timings
+// دالة لتحويل الفترات الزمنية إلى قيمة ثنائية
+void convertToBinaryCode(int* periods, int size) {
+    printf("الكود الثنائي:\n");
+    for (int i = 0; i < size; i++) {
+        if (periods[i] < 500) {
+            printf("0");
+        } else {
+            printf("1");
+        }
+    }
+    printf("\n");
+}
 
-    if level == pigpio.TIMEOUT:
-        if len(timings) > 5:  # تأكد أنه فيه إشارة حقيقية
-            print("\n✅ تم التقاط إشارة:")
-            print("🕒 الفترات الزمنية (us):")
-            print(timings)
-        timings = []
-        return
+// دالة لفحص الفترات واستخراج الفترات المناسبة
+void analyzePeriods(int* periods, int size) {
+    int threshold_short = 500;
+    int threshold_long = 1000;
 
-    if last_tick is not None:
-        delta = pigpio.tickDiff(last_tick, tick)
-        timings.append(delta)
-    last_tick = tick
+    for (int i = 0; i < size; i++) {
+        if (periods[i] < threshold_short) {
+            printf("فترة قصيرة: %d µs\n", periods[i]);
+        } else if (periods[i] > threshold_long) {
+            printf("فترة طويلة: %d µs\n", periods[i]);
+        } else {
+            printf("فترة غير معروفة: %d µs\n", periods[i]);
+        }
+    }
+}
 
-# إعداد الـ GPIO
-pi.set_mode(GPIO_PIN, pigpio.INPUT)
-pi.set_pull_up_down(GPIO_PIN, pigpio.PUD_DOWN)
-pi.set_watchdog(GPIO_PIN, 10)  # 10ms = 10000µs، لإنهاء الإشارة
+int main() {
+    // الفترات الزمنية الملتقطة (بـ µs)
+    int periods[] = {10265, 1100, 250, 425, 921, 1079, 280, 395, 945, 406, 929, 405, 936, 1084, 270, 395, 945, 400, 945};
+    int size = sizeof(periods) / sizeof(periods[0]);
 
-# تعيين الكولباك
-cb = pi.callback(GPIO_PIN, pigpio.EITHER_EDGE, rf_callback)
+    // تطبيق فلتر المتوسط المتحرك
+    int window_size = 3;  // حجم النافذة لتصفية الضوضاء
+    applyMovingAverageFilter(periods, size, window_size);
 
-try:
-    while True:
-        time.sleep(1)
+    // تحليل الفترات الزمنية
+    analyzePeriods(periods, size);
 
-except KeyboardInterrupt:
-    print("\n📴 تم إيقاف البرنامج.")
+    // تحويل الفترات إلى كود ثنائي
+    convertToBinaryCode(periods, size);
 
-finally:
-    cb.cancel()
-    pi.stop()
+    return 0;
+}
